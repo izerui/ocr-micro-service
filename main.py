@@ -1,5 +1,4 @@
 # This is a sample Python script.
-import json
 import logging
 import os
 import tempfile
@@ -9,6 +8,7 @@ import fitz
 import paddle
 from fitz import Page
 from flask import Flask, render_template, request
+from orjson import orjson
 from paddleocr import PaddleOCR
 from werkzeug.datastructures import FileStorage
 
@@ -20,8 +20,6 @@ import model
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'upload/'  # 定义上传文件夹的路径
-
-ocr = PaddleOCR(use_angle_cls=True, lang="ch")
 
 
 @app.route('/')
@@ -39,7 +37,8 @@ def uploader():
             file.save(tmp_file)
             # 需要裁切的坐标合集数组
             result = model.Result()
-            result.rects = get_request_rects(request.form['rects'])
+            result.rects = get_request_rects(request)
+            ocr = PaddleOCR(use_angle_cls=True, lang="ch")
             with fitz.open(tmp_file) as doc:
                 result.number = doc.page_count
                 for p_index in range(0, doc.page_count):
@@ -50,21 +49,31 @@ def uploader():
                         for r_index, rect in enumerate(result.rects):
                             # 指定的区域
                             frect = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y1)
-                            content = get_ocr_content(tmpdir, page, p_index, r_index, frect)
+                            content = get_ocr_content(ocr, tmpdir, page, p_index, r_index, frect)
                             page_result.contents.append(content)
                             pass
                     else:
-                        # 不使用alpha通道
-                        page_content = get_ocr_content(tmpdir, page, p_index)
+                        page_content = get_ocr_content(ocr, tmpdir, page, p_index)
                         page_result.contents.append(page_content)
                     result.pages.append(page_result)
-        return json.dumps(result.to_serializable(), ensure_ascii=False)
+        return orjson.dumps(result.to_serializable(), ensure_ascii=False).decode()
     except Exception as e:
         logging.error(e)
         return []
 
 
-def get_ocr_content(tmpdir: str, page: Page, page_index: int, rect_index: int = 0, rect: fitz.Rect = None) -> str:
+def get_ocr_content(ocr: PaddleOCR, tmpdir: str, page: Page, page_index: int, rect_index: int = 0,
+                    rect: fitz.Rect = None) -> str:
+    """
+    开始ocr识别
+    :param ocr: paddleocr对象
+    :param tmpdir: 临时目录
+    :param page: fitz页面对象
+    :param page_index: 当前页索引
+    :param rect_index: 当前区域块索引，未指定为0
+    :param rect: 区域块
+    :return:
+    """
     # 设置缩放比例
     mat = fitz.Matrix(1, 1)
     # 不使用alpha通道
@@ -78,26 +87,26 @@ def get_ocr_content(tmpdir: str, page: Page, page_index: int, rect_index: int = 
     rect_result = ocr.ocr(rect_png, det=True, rec=True, cls=True)
     # 每个裁切块的识别结果
     rect_content = '\n'.join([line[1][0] for line in rect_result[0]])
+    rect_content.replace('\n', '\\n')
     return rect_content
 
 
 # 矩形区域坐标合集数组
-def get_request_rects(request_rects: str) -> list:
-    if request_rects:
-        rects = request_rects.split(';')
-        rect_list = []
-        for rect in rects:
-            _rt = rect.split(',')
-            # 矩形区域左上及右下坐标
-            rect = model.Rect()
-            rect.x0 = float(_rt[0])
-            rect.y0 = float(_rt[1])
-            rect.x1 = float(_rt[2])
-            rect.y1 = float(_rt[3])
-            rect_list.append(rect)
-        return rect_list
-    else:
+def get_request_rects(request: request) -> list:
+    if 'rects' not in request.form or not request.form['rects']:
         return None
+    rects = request.form['rects'].split(';')
+    rect_list = []
+    for rect in rects:
+        _rt = rect.split(',')
+        # 矩形区域左上及右下坐标
+        rect = model.Rect()
+        rect.x0 = float(_rt[0])
+        rect.y0 = float(_rt[1])
+        rect.x1 = float(_rt[2])
+        rect.y1 = float(_rt[3])
+        rect_list.append(rect)
+    return rect_list
 
 
 # def parsing_result(results):

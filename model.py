@@ -40,7 +40,7 @@ class Result(object):
     def to_serializable(self):
         return {
             'number': self.number,
-            'rects': list(map(lambda r: r.to_serializable(), self.rects)),
+            'rects': list(map(lambda r: r.to_serializable() if r else None, self.rects)) if self.rects else [],
             'pages': list(map(lambda p: p.to_serializable(), self.pages))
         }
 

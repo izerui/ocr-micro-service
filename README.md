@@ -10,3 +10,4 @@
 * protobuf: `pip install protobuf==3.20.0`
 * paddlepaddle 和 paddleocr: `pip install paddlepaddle paddleocr`
 * flask: `pip install flask`
+* orjson: `pip install orjson`
