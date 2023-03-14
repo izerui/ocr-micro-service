@@ -7,8 +7,7 @@ import threading
 import fitz
 import paddle
 from fitz import Page
-from flask import Flask, render_template, request
-from orjson import orjson
+from flask import Flask, render_template, request, Response
 from paddleocr import PaddleOCR
 from werkzeug.datastructures import FileStorage
 
@@ -20,6 +19,8 @@ import model
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'upload/'  # 定义上传文件夹的路径
+
+ocr = PaddleOCR(use_angle_cls=True, lang="ch")
 
 
 @app.route('/')
@@ -38,7 +39,6 @@ def uploader():
             # 需要裁切的坐标合集数组
             result = model.Result()
             result.rects = get_request_rects(request)
-            ocr = PaddleOCR(use_angle_cls=True, lang="ch")
             with fitz.open(tmp_file) as doc:
                 result.number = doc.page_count
                 for p_index in range(0, doc.page_count):
@@ -56,7 +56,9 @@ def uploader():
                         page_content = get_ocr_content(ocr, tmpdir, page, p_index)
                         page_result.contents.append(page_content)
                     result.pages.append(page_result)
-        return orjson.dumps(result.to_serializable(), ensure_ascii=False).decode()
+        # return orjson.dumps(result.to_serializable()).decode()
+        # return json.dumps(result.to_serializable(), ensure_ascii=False)
+        return Response(result.to_xml(), mimetype='application/xml')
     except Exception as e:
         logging.error(e)
         return []
@@ -87,6 +89,9 @@ def get_ocr_content(ocr: PaddleOCR, tmpdir: str, page: Page, page_index: int, re
     rect_result = ocr.ocr(rect_png, det=True, rec=True, cls=True)
     # 每个裁切块的识别结果
     rect_content = '\n'.join([line[1][0] for line in rect_result[0]])
+    # rect_content = rect_content.replace('\n', '\\n')
+    print(rect_content)
+    # rect_content = codecs.escape_decode(rect_content)[0].decode('utf-8')
     return rect_content
 
 
