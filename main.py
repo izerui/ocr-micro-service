@@ -87,7 +87,6 @@ def get_ocr_content(ocr: PaddleOCR, tmpdir: str, page: Page, page_index: int, re
     rect_result = ocr.ocr(rect_png, det=True, rec=True, cls=True)
     # 每个裁切块的识别结果
     rect_content = '\n'.join([line[1][0] for line in rect_result[0]])
-    rect_content.replace('\n', '\\n')
     return rect_content
 
 
