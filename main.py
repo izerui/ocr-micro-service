@@ -56,7 +56,7 @@ def uploader():
                         page_content = get_ocr_content(ocr, tmpdir, page, p_index)
                         page_result.contents.append(page_content)
                     result.pages.append(page_result)
-        return orjson.dumps(result.to_serializable()).decode()
+        return orjson.dumps(result.to_serializable(), ensure_ascii=False).decode()
     except Exception as e:
         logging.error(e)
         return []
