@@ -1,5 +1,6 @@
 import xml.etree.ElementTree as ET
 
+
 class Page(object):
 
     def __init__(self):
@@ -27,9 +28,10 @@ class Page(object):
         for txt in self.contents:
             contentEL = ET.Element("content")
             # contentEL.attrib['type'] = 'str'
-            contentEL.text = txt # '<![CDATA[{}]]>'.format(txt)
+            contentEL.text = txt  # '<![CDATA[{}]]>'.format(txt)
             page.append(contentEL)
         return page
+
 
 class Rect(object):
 
@@ -46,7 +48,6 @@ class Rect(object):
     @x0.setter
     def x0(self, value: float):
         self._x0 = value
-
 
     @property
     def y0(self) -> float:
@@ -104,12 +105,26 @@ class Rect(object):
         rect.append(y1EL)
         return rect
 
+
 class Result(object):
 
     def __init__(self):
         self._number: int = 0
         self._rects: list = []
+        self._zoom: float = 100.0 # 缩放比例
         self._pages: list = []
+
+    @property
+    def zoom(self) -> float:
+        """
+        获取缩放比例 原图比例: 100.0
+        :return:
+        """
+        return self._zoom
+
+    @zoom.setter
+    def zoom(self, value: float):
+        self._zoom = value
 
     @property
     def number(self) -> int:
@@ -146,25 +161,33 @@ class Result(object):
     def to_serializable(self):
         return {
             'number': self.number,
+            'zoom': self.zoom,
             'rects': list(map(lambda r: r.to_serializable() if r else None, self.rects)) if self.rects else [],
             'pages': list(map(lambda p: p.to_serializable(), self.pages))
         }
+
     def to_xml(self):
         root = ET.Element("result")
         numEL = ET.Element('number')
         numEL.text = str(self.number)
         # numEL.attrib['type'] = 'int'
+        root.append(numEL)
+
+        zoomEL = ET.Element('zoom')
+        zoomEL.text = str(self.zoom)
+        root.append(zoomEL)
 
         rectsEL = ET.Element('rects')
-        pagesEL = ET.Element('pages')
-        if self.pages:
-            for page in self.pages:
-                pagesEL.append(page.to_xml())
-
         if self.rects:
             for rect in self.rects:
                 rectsEL.append(rect.to_xml())
         root.append(rectsEL)
+
+        pagesEL = ET.Element('pages')
+        if self.pages:
+            for page in self.pages:
+                pagesEL.append(page.to_xml())
         root.append(pagesEL)
+
         xml_str = ET.tostring(root, encoding='utf8', method='xml')
         return xml_str.decode()

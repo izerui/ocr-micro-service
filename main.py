@@ -54,6 +54,7 @@ def uploader():
             file.save(tmp_file)
             # 需要裁切的坐标合集数组
             result.rects = get_request_rects(request)
+            result.zoom = get_request_zoom(request)
             with fitz.open(tmp_file) as doc:
                 result.number = doc.page_count
                 for p_index in range(0, doc.page_count):
@@ -64,11 +65,11 @@ def uploader():
                         for r_index, rect in enumerate(result.rects):
                             # 指定的区域
                             frect = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y1)
-                            content = get_ocr_content(tmpdir, page, p_index, r_index, frect)
+                            content = get_ocr_content(result.zoom, tmpdir, page, p_index, r_index, frect)
                             page_result.contents.append(content)
                             pass
                     else:
-                        page_content = get_ocr_content(tmpdir, page, p_index)
+                        page_content = get_ocr_content(result.zoom, tmpdir, page, p_index)
                         page_result.contents.append(page_content)
                     result.pages.append(page_result)
     except Exception as e:
@@ -78,7 +79,7 @@ def uploader():
 
 
 @log_time
-def get_ocr_content(tmpdir: str, page: Page, page_index: int, rect_index: int = 0,
+def get_ocr_content(zoom: float, tmpdir: str, page: Page, page_index: int, rect_index: int = 0,
                     rect: fitz.Rect = None) -> str:
     """
     开始ocr识别
@@ -91,7 +92,7 @@ def get_ocr_content(tmpdir: str, page: Page, page_index: int, rect_index: int = 
     :return:
     """
     # 设置缩放比例
-    mat = fitz.Matrix(1, 1)
+    mat = fitz.Matrix(zoom / 100.0, zoom / 100.0)
     # 不使用alpha通道
     pixmap = page.get_pixmap(matrix=mat, alpha=False, clip=rect, grayscale=True)
     rect_png = os.path.join(tmpdir, f'{page_index}_{rect_index}.png')
@@ -118,6 +119,18 @@ def get_ocr_content(tmpdir: str, page: Page, page_index: int, rect_index: int = 
     # rect_content = rect_content.replace('\n', '\\n')
     # rect_content = codecs.escape_decode(rect_content)[0].decode('utf-8')
     return rect_content
+
+
+@log_time
+def get_request_zoom(request: request) -> float:
+    """
+    获取zoom请求参数 如果不包含该参数默认为100.0
+    :param request:
+    :return:
+    """
+    if 'zoom' not in request.form or not request.form['zoom']:
+        return 100.0
+    return float(request.form['zoom'])
 
 
 # 矩形区域坐标合集数组
