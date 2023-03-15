@@ -53,7 +53,7 @@ def uploader():
             tmp_file = os.path.join(tmpdir, file.filename)
             file.save(tmp_file)
             # 需要裁切的坐标合集数组
-            result.rects = get_request_rects(request)
+            request_rects = get_request_rects(request)
             result.zoom = get_request_zoom(request)
             with fitz.open(tmp_file) as doc:
                 result.number = doc.page_count
@@ -61,16 +61,18 @@ def uploader():
                     page = doc.load_page(p_index)
                     # 每页按区域裁切后的图片列表， 如果没有裁切，则整页作为列表其中一项
                     page_result = model.Page()
-                    if result.rects:
-                        for r_index, rect in enumerate(result.rects):
+                    if request_rects:
+                        for r_index, rect in enumerate(request_rects):
                             # 指定的区域
-                            frect = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y1)
-                            content = get_ocr_content(result.zoom, tmpdir, page, p_index, r_index, frect)
-                            page_result.contents.append(content)
+                            frect = fitz.Rect(rect[0], rect[1], rect[2], rect[3])
+                            rect_content = get_ocr_content(result.zoom, tmpdir, page, p_index, r_index, frect)
+                            page_result.rects.append(rect_content[0])
+                            page_result.contents.append(rect_content[1])
                             pass
                     else:
                         page_content = get_ocr_content(result.zoom, tmpdir, page, p_index)
-                        page_result.contents.append(page_content)
+                        page_result.rects.append(page_content[0])
+                        page_result.contents.append(page_content[1])
                     result.pages.append(page_result)
     except Exception as e:
         logging.exception(e)
@@ -80,7 +82,7 @@ def uploader():
 
 @log_time
 def get_ocr_content(zoom: float, tmpdir: str, page: Page, page_index: int, rect_index: int = 0,
-                    rect: fitz.Rect = None) -> str:
+                    rect: fitz.Rect = None) -> list:
     """
     开始ocr识别
     :param ocr: paddleocr对象
@@ -95,6 +97,8 @@ def get_ocr_content(zoom: float, tmpdir: str, page: Page, page_index: int, rect_
     mat = fitz.Matrix(zoom / 100.0, zoom / 100.0)
     # 不使用alpha通道
     pixmap = page.get_pixmap(matrix=mat, alpha=False, clip=rect, grayscale=True)
+    if not rect:
+        rect = fitz.Rect(0, 0, pixmap.width, pixmap.height)
     rect_png = os.path.join(tmpdir, f'{page_index}_{rect_index}.png')
     print(f'识别第{page_index}页: {rect_png}')
     try:
@@ -118,7 +122,7 @@ def get_ocr_content(zoom: float, tmpdir: str, page: Page, page_index: int, rect_
     rect_content = '\r\t'.join([line[1][0] for line in rect_result[0]])
     # rect_content = rect_content.replace('\n', '\\n')
     # rect_content = codecs.escape_decode(rect_content)[0].decode('utf-8')
-    return rect_content
+    return [[rect.x0, rect.y0, rect.x1, rect.y1], rect_content]
 
 
 @log_time
@@ -148,12 +152,7 @@ def get_request_rects(request: request) -> list:
     for rect in rects:
         _rt = rect.split(',')
         # 矩形区域左上及右下坐标
-        rect = model.Rect()
-        rect.x0 = float(_rt[0])
-        rect.y0 = float(_rt[1])
-        rect.x1 = float(_rt[2])
-        rect.y1 = float(_rt[3])
-        rect_list.append(rect)
+        rect_list.append([float(_rt[0]), float(_rt[1]), float(_rt[2]), float(_rt[3])])
     return rect_list
 
 

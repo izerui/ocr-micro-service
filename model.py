@@ -4,7 +4,20 @@ import xml.etree.ElementTree as ET
 class Page(object):
 
     def __init__(self):
+        self._rects = []
         self._contents: list = []
+
+    @property
+    def rects(self) -> list:
+        """
+        区域块合集
+        :return:
+        """
+        return self._rects
+
+    @rects.setter
+    def rects(self, value: list):
+        self._rects = value
 
     @property
     def contents(self) -> list:
@@ -25,92 +38,19 @@ class Page(object):
 
     def to_xml(self):
         page = ET.Element("page")
-        for txt in self.contents:
-            contentEL = ET.Element("content")
+        for index,txt in enumerate(self.contents):
+            rect = self.rects[index]
+            contentEL = ET.Element("content", attrib={'x0': str(rect[0]), 'y0': str(rect[1]), 'x1': str(rect[2]), 'y1': str(rect[3])})
             # contentEL.attrib['type'] = 'str'
             contentEL.text = txt  # '<![CDATA[{}]]>'.format(txt)
             page.append(contentEL)
         return page
 
 
-class Rect(object):
-
-    def __init__(self):
-        self._x0 = None
-        self._y0 = None
-        self._x1 = None
-        self._y1 = None
-
-    @property
-    def x0(self) -> float:
-        return self._x0
-
-    @x0.setter
-    def x0(self, value: float):
-        self._x0 = value
-
-    @property
-    def y0(self) -> float:
-        return self._y0
-
-    @y0.setter
-    def y0(self, value: float):
-        self._y0 = value
-
-    @property
-    def x1(self) -> float:
-        return self._x1
-
-    @x1.setter
-    def x1(self, value: float):
-        self._x1 = value
-
-    @property
-    def y1(self) -> float:
-        return self._y1
-
-    @y1.setter
-    def y1(self, value: float):
-        self._y1 = value
-
-    def to_serializable(self):
-        return {
-            'x0': self.x0,
-            'y0': self.y0,
-            'x1': self.x1,
-            'y1': self.y1
-        }
-
-    def to_xml(self):
-        rect = ET.Element("rect")
-        x0EL = ET.Element("x0")
-        # x0EL.attrib['type'] = 'float'
-        x0EL.text = str(self.x0)
-
-        y0EL = ET.Element("y0")
-        # y0EL.attrib['type'] = 'float'
-        y0EL.text = str(self.y0)
-
-        x1EL = ET.Element("x1")
-        # x1EL.attrib['type'] = 'float'
-        x1EL.text = str(self.x1)
-
-        y1EL = ET.Element("y1")
-        # y1EL.attrib['type'] = 'float'
-        y1EL.text = str(self.y1)
-
-        rect.append(x0EL)
-        rect.append(y0EL)
-        rect.append(x1EL)
-        rect.append(y1EL)
-        return rect
-
-
 class Result(object):
 
     def __init__(self):
         self._number: int = 0
-        self._rects: list = []
         self._zoom: float = 100.0 # 缩放比例
         self._pages: list = []
 
@@ -146,23 +86,10 @@ class Result(object):
     def pages(self, value: list):
         self._pages = value
 
-    @property
-    def rects(self) -> list:
-        """
-        矩形区域数组
-        :return:
-        """
-        return self._rects
-
-    @rects.setter
-    def rects(self, value: list):
-        self._rects = value
-
     def to_serializable(self):
         return {
             'number': self.number,
             'zoom': self.zoom,
-            'rects': list(map(lambda r: r.to_serializable() if r else None, self.rects)) if self.rects else [],
             'pages': list(map(lambda p: p.to_serializable(), self.pages))
         }
 
@@ -177,16 +104,12 @@ class Result(object):
         zoomEL.text = str(self.zoom)
         root.append(zoomEL)
 
-        rectsEL = ET.Element('rects')
-        if self.rects:
-            for rect in self.rects:
-                rectsEL.append(rect.to_xml())
-        root.append(rectsEL)
-
         pagesEL = ET.Element('pages')
         if self.pages:
-            for page in self.pages:
-                pagesEL.append(page.to_xml())
+            for index, page in enumerate(self.pages):
+                pageEL = page.to_xml()
+                pageEL.attrib['index'] = str(index)
+                pagesEL.append(pageEL)
         root.append(pagesEL)
 
         xml_str = ET.tostring(root, encoding='utf8', method='xml')
