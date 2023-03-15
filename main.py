@@ -56,9 +56,6 @@ def uploader():
             result.rects = get_request_rects(request)
             with fitz.open(tmp_file) as doc:
                 result.number = doc.page_count
-                # 从ocr池中获取对象
-                myocr = pond.borrow(ocr_factory)
-                ocr = myocr.use()
                 for p_index in range(0, doc.page_count):
                     page = doc.load_page(p_index)
                     # 每页按区域裁切后的图片列表， 如果没有裁切，则整页作为列表其中一项
@@ -67,15 +64,13 @@ def uploader():
                         for r_index, rect in enumerate(result.rects):
                             # 指定的区域
                             frect = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y1)
-                            content = get_ocr_content(ocr, tmpdir, page, p_index, r_index, frect)
+                            content = get_ocr_content(tmpdir, page, p_index, r_index, frect)
                             page_result.contents.append(content)
                             pass
                     else:
-                        page_content = get_ocr_content(ocr, tmpdir, page, p_index)
+                        page_content = get_ocr_content(tmpdir, page, p_index)
                         page_result.contents.append(page_content)
                     result.pages.append(page_result)
-                # 使用完毕归还ocr对象
-                pond.recycle(myocr, ocr_factory)
     except Exception as e:
         logging.exception(e)
     resp = result.to_xml()
@@ -83,7 +78,7 @@ def uploader():
 
 
 @log_time
-def get_ocr_content(ocr: PaddleOCR, tmpdir: str, page: Page, page_index: int, rect_index: int = 0,
+def get_ocr_content(tmpdir: str, page: Page, page_index: int, rect_index: int = 0,
                     rect: fitz.Rect = None) -> str:
     """
     开始ocr识别
@@ -104,14 +99,18 @@ def get_ocr_content(ocr: PaddleOCR, tmpdir: str, page: Page, page_index: int, re
     try:
         pixmap.save(rect_png)
     except Exception as e:
-        logging.error('图片与对应的识别区域坐标不匹配')
-        raise e
+        raise RuntimeError('图片与对应的识别区域坐标不匹配')
     # 数组第一层: 每页
     # 数组第二层: 每文字块
     #       文字块[0]: 文字块的最小矩形区域的坐标(左上、右上、左下、右下)
     #       文字块[1]: 文字块的内容及可信度(介于0 到 1之间)
     s_time = time.time()
+    # 从ocr池中获取对象
+    myocr = pond.borrow(ocr_factory)
+    ocr = myocr.use()
     rect_result = ocr.ocr(rect_png, det=True, rec=True, cls=True)
+    # 使用完毕归还ocr对象
+    pond.recycle(myocr, ocr_factory)
     e_time = time.time()
     print(':::::: ocr耗时: ', e_time - s_time, '秒')
     # 每个裁切块的识别结果

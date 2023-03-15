@@ -7,6 +7,7 @@ class MyOcr(PaddleOCR):
     validate_result: bool = True
 
     def __init__(self):
+        # super().__init__(use_angle_cls=True, lang="ch", use_mp=True, total_process_num=8)
         super().__init__(use_angle_cls=True, lang="ch")
 
 
