@@ -26,8 +26,8 @@ class Page(object):
         page = ET.Element("page")
         for txt in self.contents:
             contentEL = ET.Element("content")
-            contentEL.attrib['type'] = 'str'
-            contentEL.text = txt
+            # contentEL.attrib['type'] = 'str'
+            contentEL.text = txt # '<![CDATA[{}]]>'.format(txt)
             page.append(contentEL)
         return page
 
@@ -83,19 +83,19 @@ class Rect(object):
     def to_xml(self):
         rect = ET.Element("rect")
         x0EL = ET.Element("x0")
-        x0EL.attrib['type'] = 'float'
+        # x0EL.attrib['type'] = 'float'
         x0EL.text = str(self.x0)
 
         y0EL = ET.Element("y0")
-        y0EL.attrib['type'] = 'float'
+        # y0EL.attrib['type'] = 'float'
         y0EL.text = str(self.y0)
 
         x1EL = ET.Element("x1")
-        x1EL.attrib['type'] = 'float'
+        # x1EL.attrib['type'] = 'float'
         x1EL.text = str(self.x1)
 
         y1EL = ET.Element("y1")
-        y1EL.attrib['type'] = 'float'
+        # y1EL.attrib['type'] = 'float'
         y1EL.text = str(self.y1)
 
         rect.append(x0EL)
@@ -153,7 +153,7 @@ class Result(object):
         root = ET.Element("result")
         numEL = ET.Element('number')
         numEL.text = str(self.number)
-        numEL.attrib['type'] = 'int'
+        # numEL.attrib['type'] = 'int'
 
         rectsEL = ET.Element('rects')
         pagesEL = ET.Element('pages')

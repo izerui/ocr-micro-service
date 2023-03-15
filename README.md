@@ -11,4 +11,4 @@
 * paddlepaddle 和 paddleocr: `pip install paddlepaddle paddleocr` 
   * gpu版: 请替换里面的`paddlepaddle`为`paddlepaddle-gpu` 具体版本请参考: https://www.paddlepaddle.org.cn/install/quick?docurl=/documentation/docs/zh/install/pip/windows-pip.html
 * flask: `pip install flask`
-* orjson: `pip install orjson`
+* pondpond 对象池: `pip install pondpond`
