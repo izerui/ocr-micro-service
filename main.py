@@ -52,6 +52,7 @@ def uploader():
             file: FileStorage = request.files['file']
             tmp_file = os.path.join(tmpdir, file.filename)
             file.save(tmp_file)
+            ## TODO 图片与pdf要分开计算
             # 需要裁切的坐标合集数组
             request_rects = get_request_rects(request)
             result.zoom = get_request_zoom(request)
@@ -59,6 +60,9 @@ def uploader():
                 result.number = doc.page_count
                 for p_index in range(0, doc.page_count):
                     page = doc.load_page(p_index)
+                    p_width = page.rect.width
+                    p_height = page.rect.height
+                    print(f'第{p_index}页, 宽:{p_width} 高:{p_height}')
                     # 每页按区域裁切后的图片列表， 如果没有裁切，则整页作为列表其中一项
                     page_result = model.Page()
                     if request_rects:

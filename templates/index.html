@@ -45,6 +45,7 @@
 
 
             $("#file").change(function (event) {
+                $("#rects").val('')
                 f = event.target.files[0]
                 var canvas = document.getElementById('myCanvas');
                 if (f.type.match('pdf.*')) {
