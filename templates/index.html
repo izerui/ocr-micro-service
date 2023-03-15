@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/3.3.7/css/bootstrap.min.css">
     <script src="https://cdn.staticfile.org/jquery/2.1.1/jquery.min.js"></script>
     <script src="https://cdn.staticfile.org/twitter-bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <script src="static/pdf.js"></script>
+    <script src="static/pdf.worker.js"></script>
     <style>
         /*web background*/
         .container {
@@ -31,40 +33,91 @@
             margin-right: -4px;
         }
     </style>
+    <script type="text/javascript">
+        $(document).ready(function () {
+            $("#file").change(function (event) {
+                f = event.target.files[0]
+                ext = f.name.substring(f.name.lastIndexOf('.') + 1)
+                var canvas = document.getElementById('myCanvas');
+                var reader = new FileReader();
+                reader.onload = function (ev) {
+                    if (ext == 'pdf') {
+                        var arrayBuffer = ev.target.result;
+                        var typedArray = new Uint8Array(arrayBuffer);
+                        // 使用pdf.js加载PDF文件
+                        pdfjsLib.getDocument(typedArray).promise.then(function (pdf) {
+                            // 获得该PDF的第一页
+                            pdf.getPage(1).then(function (page) {
+                                var scale = 1;
+                                var viewport = page.getViewport({scale: scale,});
+                                // Support HiDPI-screens.
+                                var outputScale = window.devicePixelRatio || 1;
+
+                                var context = canvas.getContext('2d');
+
+                                canvas.width = Math.floor(viewport.width * outputScale);
+                                canvas.height = Math.floor(viewport.height * outputScale);
+                                canvas.style.width = Math.floor(viewport.width) + "px";
+                                canvas.style.height = Math.floor(viewport.height) + "px";
+
+                                var transform = outputScale !== 1
+                                    ? [outputScale, 0, 0, outputScale, 0, 0]
+                                    : null;
+
+                                var renderContext = {
+                                    canvasContext: context,
+                                    transform: transform,
+                                    viewport: viewport
+                                };
+                                page.render(renderContext);
+                            });
+                        });
+                    } else {
+                        var image = new Image();
+                        image.src = ev.target.result;
+
+                        image.onload = function () {
+                            canvas.width = image.width;
+                            canvas.height = image.height;
+                            var ctx = canvas.getContext("2d");
+                            ctx.drawImage(image, 0, 0);
+                        };
+                    }
+                };
+                reader.readAsDataURL(f);
+            });
+
+        })
+    </script>
 </head>
 <body>
-<div class="container">
-    <div class="row row-centered">
-        <div class="well col-md-6 col-centered">
-            <h2>OCR图像批量识别</h2>
-            <form role="form" action="ocr" method="POST" enctype="multipart/form-data">
-                <div class="form-group">
-                    <label for="rects">(可选)区域坐标合集</label>
-                    <input type="text" class="form-control" id="rects" name="rects"
-                           placeholder="请输入要按页读取的多个块区域坐标(x0,y0,x1,y1)">
-                    <p class="help-block">示例(多个块坐标使用;分隔): 4796,3801,5617,3978;5728,4142,6408,4243。如果不填默认识别整页内容</p>
-                </div>
-                <div class="form-group">
-                    <label for="inputfile">(必填)请选择单页或多页图像文件</label>
-                    <input type="file" id="file" name="file">
-                    <p class="help-block">支持的类型有: (*.jpg *.bmp *.jpeg *.png *.psd *.pef *.orf *.tiff *.dng *.pdf
-                        *.tif)。</p>
-                </div>
-                <div class="form-group">
-                    <label for="zoom">(可选)缩放比例</label>
-                    <input type="text" class="form-control" id="zoom" name="zoom"
-                           placeholder="请输入缩放比例: 100 为原图比例,注意缩放跟块坐标要匹配。">
-                    <p class="help-block">示例: 原图为100、放大一倍为200、缩小一倍为50，以此类推。</p>
-                </div>
-                <!--	<div class="checkbox">-->
-                <!--		<label>-->
-                <!--			<input type="checkbox"> 请打勾-->
-                <!--		</label>-->
-                <!--	</div>-->
-                <button id="sub" type="submit" class="btn btn-default">提交</button>
-            </form>
-        </div>
+<form role="form" action="ocr" method="POST" enctype="multipart/form-data">
+    <div class="form-group">
+        <label for="rects">(可选)区域坐标合集</label>
+        <input type="text" class="form-control" id="rects" name="rects"
+               placeholder="请输入要按页读取的多个块区域坐标(x0,y0,x1,y1)">
+        <p class="help-block">示例(多个块坐标使用;分隔):
+            4796,3801,5617,3978;5728,4142,6408,4243。如果不填默认识别整页内容</p>
     </div>
-</div>
+    <div class="form-group">
+        <label for="inputfile">(必填)请选择单页或多页图像文件</label>
+        <input type="file" id="file" name="file">
+        <p class="help-block">支持的类型有: (*.jpg *.bmp *.jpeg *.png *.psd *.pef *.orf *.tiff *.dng *.pdf
+            *.tif)。</p>
+    </div>
+    <div class="form-group">
+        <label for="zoom">(可选)缩放比例</label>
+        <input type="text" class="form-control" id="zoom" name="zoom"
+               placeholder="请输入缩放比例: 100 为原图比例,注意缩放跟块坐标要匹配。">
+        <p class="help-block">示例: 原图为100、放大一倍为200、缩小一倍为50，以此类推。</p>
+    </div>
+    <!--	<div class="checkbox">-->
+    <!--		<label>-->
+    <!--			<input type="checkbox"> 请打勾-->
+    <!--		</label>-->
+    <!--	</div>-->
+    <button id="sub" type="submit" class="btn btn-default">提交</button>
+</form>
+<canvas id="myCanvas"></canvas>
 </body>
 </html>
