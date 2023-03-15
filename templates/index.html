@@ -9,49 +9,58 @@
     <script src="https://cdn.staticfile.org/twitter-bootstrap/3.3.7/js/bootstrap.min.js"></script>
     <script src="static/pdf.js"></script>
     <script src="static/pdf.worker.js"></script>
-    <style>
-        /*web background*/
-        .container {
-            display: table;
-            height: 100%;
-        }
-
-        .row {
-            display: table-cell;
-            vertical-align: middle;
-        }
-
-        /* centered columns styles */
-        .row-centered {
-            text-align: center;
-        }
-
-        .col-centered {
-            display: inline-block;
-            float: none;
-            text-align: left;
-            margin-right: -4px;
-        }
-    </style>
     <script type="text/javascript">
         $(document).ready(function () {
+
+            // =============
+            let canvas = document.getElementById('myCanvas');
+            let ctx = canvas.getContext('2d');
+            let x0, y0; // 记录起始点坐标
+            let x1, y1; // 结束点坐标
+
+            $("#myCanvas").mousedown(function (e) {
+                x0 = e.offsetX;
+                y0 = e.offsetY;
+            })
+
+            $("#myCanvas").mouseup(function (e) {
+                x1 = e.offsetX;
+                y1 = e.offsetY;
+                let width = Math.abs(x1 - x0);
+                let height = Math.abs(y1 - y0);
+                ctx.beginPath()
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#f00';
+                ctx.rect(x0, y0, width, height);
+                ctx.stroke();
+                rects = $("#rects").val()
+                if(rects) {
+                    rects += ';' + `${x0},${y0},${x1},${y1}`
+                }else {
+                    rects = `${x0},${y0}, ${x1}, ${y1}`
+                }
+                $("#rects").val(rects)
+                console.log(`矩形坐标：(${x0},${y0}, ${x1}, ${y1}), 宽:${width},高:${height}`);
+            })
+            // ===============
+
+
             $("#file").change(function (event) {
                 f = event.target.files[0]
-                ext = f.name.substring(f.name.lastIndexOf('.') + 1)
                 var canvas = document.getElementById('myCanvas');
-                var reader = new FileReader();
-                reader.onload = function (ev) {
-                    if (ext == 'pdf') {
-                        var arrayBuffer = ev.target.result;
-                        var typedArray = new Uint8Array(arrayBuffer);
+                if (f.type.match('pdf.*')) {
+                    var reader = new FileReader();
+                    reader.onload = function (ev) {
+                        var uint8Array = new Uint8Array(ev.target.result)
+                        console.log(uint8Array)
                         // 使用pdf.js加载PDF文件
-                        pdfjsLib.getDocument(typedArray).promise.then(function (pdf) {
+                        pdfjsLib.getDocument(uint8Array).promise.then(function (pdf) {
                             // 获得该PDF的第一页
                             pdf.getPage(1).then(function (page) {
                                 var scale = 1;
                                 var viewport = page.getViewport({scale: scale,});
                                 // Support HiDPI-screens.
-                                var outputScale = window.devicePixelRatio || 1;
+                                var outputScale = 1;
 
                                 var context = canvas.getContext('2d');
 
@@ -72,7 +81,11 @@
                                 page.render(renderContext);
                             });
                         });
-                    } else {
+                    };
+                    reader.readAsArrayBuffer(f);
+                } else {
+                    var reader = new FileReader();
+                    reader.onload = function (ev) {
                         var image = new Image();
                         image.src = ev.target.result;
 
@@ -82,9 +95,10 @@
                             var ctx = canvas.getContext("2d");
                             ctx.drawImage(image, 0, 0);
                         };
-                    }
-                };
-                reader.readAsDataURL(f);
+                    };
+                    reader.readAsDataURL(f);
+                }
+
             });
 
         })
