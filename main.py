@@ -1,15 +1,16 @@
 # This is a sample Python script.
+import imghdr
 import logging
 import os
 import tempfile
 import threading
 import time
 
+import cv2
 import fitz
 import paddle
 from fitz import Page
 from flask import Flask, render_template, request, Response
-from paddleocr import PaddleOCR
 from werkzeug.datastructures import FileStorage
 
 import model
@@ -52,41 +53,62 @@ def uploader():
             file: FileStorage = request.files['file']
             tmp_file = os.path.join(tmpdir, file.filename)
             file.save(tmp_file)
-            ## TODO 图片与pdf要分开计算
+            tmp_file_name, ext = os.path.splitext(os.path.basename(tmp_file))
             # 需要裁切的坐标合集数组
             request_rects = get_request_rects(request)
             result.zoom = get_request_zoom(request)
-            with fitz.open(tmp_file) as doc:
-                result.number = doc.page_count
-                for p_index in range(0, doc.page_count):
-                    page = doc.load_page(p_index)
-                    p_width = page.rect.width
-                    p_height = page.rect.height
-                    print(f'第{p_index}页, 宽:{p_width} 高:{p_height}')
-                    # 每页按区域裁切后的图片列表， 如果没有裁切，则整页作为列表其中一项
-                    page_result = model.Page()
-                    if request_rects:
-                        for r_index, rect in enumerate(request_rects):
-                            # 指定的区域
-                            frect = fitz.Rect(rect[0], rect[1], rect[2], rect[3])
-                            rect_content = get_ocr_content(result.zoom, tmpdir, page, p_index, r_index, frect)
-                            page_result.rects.append(rect_content[0])
-                            page_result.contents.append(rect_content[1])
-                            pass
-                    else:
-                        page_content = get_ocr_content(result.zoom, tmpdir, page, p_index)
-                        page_result.rects.append(page_content[0])
-                        page_result.contents.append(page_content[1])
-                    result.pages.append(page_result)
+            # 如果是单页图片直接读取
+            if imghdr.what(tmp_file) and ext != 'tiff':
+                im = cv2.imread(tmp_file)
+                pass
+            # 多页pdf使用fitz进行按页读取
+            else:
+                with fitz.open(tmp_file) as doc:
+                    result.number = doc.page_count
+                    for p_index in range(0, doc.page_count):
+                        page = doc.load_page(p_index)
+                        p_width = page.rect.width
+                        p_height = page.rect.height
+                        print(f'第{p_index}页, 宽:{p_width} 高:{p_height}')
+                        # 每页按区域裁切后的图片列表， 如果没有裁切，则整页作为列表其中一项
+                        page_result = model.Page()
+                        if request_rects:
+                            for r_index, rect in enumerate(request_rects):
+                                # 指定的区域
+                                frect = fitz.Rect(rect[0], rect[1], rect[2], rect[3])
+                                rect_content = cut_ocr_content(result.zoom, tmpdir, page, p_index, r_index, frect)
+                                page_result.contents.append(rect_content)
+                                page_result.rects.append([frect.y0, frect.y0, frect.x1, frect.y1])
+                                pass
+                        else:
+                            page_content = cut_ocr_content(result.zoom, tmpdir, page, p_index)
+                            page_result.contents.append(page_content)
+                            page_result.rects.append([0, 0, p_width, p_height])
+                        result.pages.append(page_result)
     except Exception as e:
         logging.exception(e)
     resp = result.to_xml()
     return Response(resp, mimetype='application/xml')
 
+def cut_image(path, left, upper, right, lower, save_path):
+    """
+        所截区域图片保存
+    :param path: 图片路径
+    :param left: 区块左上角位置的像素点离图片左边界的距离
+    :param upper：区块左上角位置的像素点离图片上边界的距离
+    :param right：区块右下角位置的像素点离图片左边界的距离
+    :param lower：区块右下角位置的像素点离图片上边界的距离
+     故需满足：lower > upper、right > left
+    :param save_path: 所截图片保存位置
+    """
+    img = cv2.imread(path)  # 打开图像
+    cropped = img[upper:lower, left:right]
+    # 保存截取的图片
+    cv2.imwrite(save_path, cropped)
 
 @log_time
-def get_ocr_content(zoom: float, tmpdir: str, page: Page, page_index: int, rect_index: int = 0,
-                    rect: fitz.Rect = None) -> list:
+def cut_ocr_content(zoom: float, tmpdir: str, page: Page, page_index: int, rect_index: int = 0,
+                    frect: fitz.Rect = None) -> list:
     """
     开始ocr识别
     :param ocr: paddleocr对象
@@ -94,39 +116,42 @@ def get_ocr_content(zoom: float, tmpdir: str, page: Page, page_index: int, rect_
     :param page: fitz页面对象
     :param page_index: 当前页索引
     :param rect_index: 当前区域块索引，未指定为0
-    :param rect: 区域块
+    :param frect: fitz.Rect区域块
     :return:
     """
     # 设置缩放比例
     mat = fitz.Matrix(zoom / 100.0, zoom / 100.0)
     # 不使用alpha通道
-    pixmap = page.get_pixmap(matrix=mat, alpha=False, clip=rect, grayscale=True)
-    if not rect:
-        rect = fitz.Rect(0, 0, pixmap.width, pixmap.height)
+    pixmap = page.get_pixmap(matrix=mat, alpha=False, clip=frect, grayscale=True)
     rect_png = os.path.join(tmpdir, f'{page_index}_{rect_index}.png')
     print(f'识别第{page_index}页: {rect_png}')
     try:
         pixmap.save(rect_png)
     except Exception as e:
         raise RuntimeError('图片与对应的识别区域坐标不匹配')
+    return ocr_content(rect_png)
+
+
+@log_time
+def ocr_content(png_file):
+    """
+    从文件识别内容
+    :param png_file: 单页图片文件
+    :return:
+    """
+    # 从ocr池中获取对象
+    myocr = pond.borrow(ocr_factory)
+    ocr = myocr.use()
     # 数组第一层: 每页
     # 数组第二层: 每文字块
     #       文字块[0]: 文字块的最小矩形区域的坐标(左上、右上、左下、右下)
     #       文字块[1]: 文字块的内容及可信度(介于0 到 1之间)
-    s_time = time.time()
-    # 从ocr池中获取对象
-    myocr = pond.borrow(ocr_factory)
-    ocr = myocr.use()
-    rect_result = ocr.ocr(rect_png, det=True, rec=True, cls=True)
+    rect_result = ocr.ocr(png_file, det=True, rec=True, cls=True)
     # 使用完毕归还ocr对象
     pond.recycle(myocr, ocr_factory)
-    e_time = time.time()
-    print(':::::: ocr耗时: ', e_time - s_time, '秒')
     # 每个裁切块的识别结果
-    rect_content = '\r\t'.join([line[1][0] for line in rect_result[0]])
-    # rect_content = rect_content.replace('\n', '\\n')
-    # rect_content = codecs.escape_decode(rect_content)[0].decode('utf-8')
-    return [[rect.x0, rect.y0, rect.x1, rect.y1], rect_content]
+    result = '\r\t'.join([line[1][0] for line in rect_result[0]])
+    return result
 
 
 @log_time
