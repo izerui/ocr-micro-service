@@ -2,6 +2,8 @@
 import imghdr
 import logging
 import os
+import platform
+import subprocess
 import tempfile
 import threading
 import time
@@ -9,11 +11,11 @@ import time
 import cv2
 import fitz
 import paddle
-from fitz import Page
 from flask import Flask, render_template, request, Response
 from werkzeug.datastructures import FileStorage
 
 import model
+from model import Page
 from ocr import pond, ocr_factory
 
 
@@ -59,8 +61,8 @@ def uploader():
             result.zoom = get_request_zoom(request)
             # 如果是单页图片直接读取
             if imghdr.what(tmp_file) and ext != 'tiff':
-                im = cv2.imread(tmp_file)
-                pass
+                page_result = cut_orc_image(1, tmpdir, tmp_file, request_rects)
+                result.pages.append(page_result)
             # 多页pdf使用fitz进行按页读取
             else:
                 with fitz.open(tmp_file) as doc:
@@ -76,12 +78,12 @@ def uploader():
                             for r_index, rect in enumerate(request_rects):
                                 # 指定的区域
                                 frect = fitz.Rect(rect[0], rect[1], rect[2], rect[3])
-                                rect_content = cut_ocr_content(result.zoom, tmpdir, page, p_index, r_index, frect)
+                                rect_content = cut_ocr_page_rect(result.zoom, tmpdir, page, p_index, r_index, frect)
                                 page_result.contents.append(rect_content)
                                 page_result.rects.append([frect.y0, frect.y0, frect.x1, frect.y1])
                                 pass
                         else:
-                            page_content = cut_ocr_content(result.zoom, tmpdir, page, p_index)
+                            page_content = cut_ocr_page_rect(result.zoom, tmpdir, page, p_index)
                             page_result.contents.append(page_content)
                             page_result.rects.append([0, 0, p_width, p_height])
                         result.pages.append(page_result)
@@ -90,25 +92,45 @@ def uploader():
     resp = result.to_xml()
     return Response(resp, mimetype='application/xml')
 
-def cut_image(path, left, upper, right, lower, save_path):
+
+def cut_orc_image(zoom: float, tmpdir: str, img_path, request_rects: list):
     """
         所截区域图片保存
     :param path: 图片路径
-    :param left: 区块左上角位置的像素点离图片左边界的距离
-    :param upper：区块左上角位置的像素点离图片上边界的距离
-    :param right：区块右下角位置的像素点离图片左边界的距离
-    :param lower：区块右下角位置的像素点离图片上边界的距离
+    :param x0: 区块左上角位置的像素点离图片左边界的距离
+    :param y0：区块左上角位置的像素点离图片上边界的距离
+    :param x1：区块右下角位置的像素点离图片左边界的距离
+    :param y1：区块右下角位置的像素点离图片上边界的距离
      故需满足：lower > upper、right > left
     :param save_path: 所截图片保存位置
     """
-    img = cv2.imread(path)  # 打开图像
-    cropped = img[upper:lower, left:right]
-    # 保存截取的图片
-    cv2.imwrite(save_path, cropped)
+    file_name, ext = os.path.splitext(os.path.basename(img_path))
+    img = cv2.imread(img_path)  # 打开图像
+    # 获取图片宽度和高度
+    height, width = img.shape[:2]
+    page_result = model.Page()
+    if request_rects:
+        for r_index, rect in enumerate(request_rects):
+            # image[start_row:end_row, start_col:end_col]
+            cropped = img[rect[1]:rect[3], rect[0]:rect[2]]
+            rect_img_file = os.path.join(tmpdir, f'{r_index}{ext}')
+            # 保存截取的图片
+            cv2.imwrite(rect_img_file, cropped)
+            # debug for
+            # open_file(rect_img_file)
+            rect_content = ocr_content(rect_img_file)
+            page_result.contents.append(rect_content)
+            page_result.rects.append([rect[0], rect[1], rect[2], rect[3]])
+    else:
+        img_content = ocr_content(img_path)
+        page_result.contents.append(img_content)
+        page_result.rects.append([0, 0, width, height])
+    return page_result
+
 
 @log_time
-def cut_ocr_content(zoom: float, tmpdir: str, page: Page, page_index: int, rect_index: int = 0,
-                    frect: fitz.Rect = None) -> list:
+def cut_ocr_page_rect(zoom: float, tmpdir: str, page: Page, page_index: int, rect_index: int = 0,
+                      frect: fitz.Rect = None) -> list:
     """
     开始ocr识别
     :param ocr: paddleocr对象
@@ -181,9 +203,20 @@ def get_request_rects(request: request) -> list:
     for rect in rects:
         _rt = rect.split(',')
         # 矩形区域左上及右下坐标
-        rect_list.append([float(_rt[0]), float(_rt[1]), float(_rt[2]), float(_rt[3])])
+        rect_list.append([int(_rt[0]), int(_rt[1]), int(_rt[2]), int(_rt[3])])
     return rect_list
 
+
+def open_file(file):
+    os_name = platform.system()
+    if os_name == "Windows":
+        os.startfile(file)
+    elif os_name == "Linux":
+        subprocess.call(["xdg-open", file])
+    elif os_name == 'Darwin':
+        subprocess.call(["open", file])
+    else:
+        pass
 
 # Press the green button in the gutter to run the script.
 if __name__ == "__main__":
