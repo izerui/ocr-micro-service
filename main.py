@@ -16,8 +16,13 @@ from flask import Flask, render_template, request, Response
 from werkzeug.datastructures import FileStorage
 
 import model
-from model import Page
 from ocr import pond, ocr_factory
+
+import logging
+
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
+logger = logging.getLogger()
 
 
 def log_time(func):
@@ -28,7 +33,7 @@ def log_time(func):
         result = func(*args, **kwargs)
         # 在结果之前或结果之后添加其他内容
         e_time = time.time()
-        print(f':::::::::: 统计耗时: {repr(func)} 耗时 ：{e_time - s_time}秒')
+        logger.info(f'统计耗时: {repr(func)} 耗时 ：{e_time - s_time}秒')
         return result
 
     return wrapper
@@ -114,7 +119,7 @@ def _cut_orc_image(zoom: float, tmpdir: str, img_path, request_rects: list):
 
 
 @log_time
-def _cut_ocr_page(zoom: float, tmpdir: str, doc:Document, p_index: int, request_rects:list) -> model.Page:
+def _cut_ocr_page(zoom: float, tmpdir: str, doc: Document, p_index: int, request_rects: list) -> model.Page:
     """
     开始ocr识别
     :param ocr: paddleocr对象
@@ -151,7 +156,7 @@ def _cut_ocr_page(zoom: float, tmpdir: str, doc:Document, p_index: int, request_
 
 
 @log_time
-def _cut_page_rect(tmpdir, page, p_index,mat, frect = None, r_index=0):
+def _cut_page_rect(tmpdir, page, p_index, mat, frect=None, r_index=0):
     """
     将pdf每页按当前frect区域进行裁切
     :param tmpdir: 临时目录
@@ -163,7 +168,7 @@ def _cut_page_rect(tmpdir, page, p_index,mat, frect = None, r_index=0):
     :return: 返回裁切后的临时图片路径
     """
     # 不使用alpha通道
-    pixmap = page.get_pixmap(matrix=mat, alpha=False, clip=frect, grayscale=True)
+    pixmap = page.get_pixmap(matrix=mat, alpha=False, clip=frect, grayscale=True, colorspace="GRAY")
     rect_png = os.path.join(tmpdir, f'{p_index}_{r_index}.png')
     try:
         pixmap.save(rect_png)
@@ -172,6 +177,7 @@ def _cut_page_rect(tmpdir, page, p_index,mat, frect = None, r_index=0):
     # debug for
     # _open_file(rect_png)
     return rect_png
+
 
 @log_time
 def _ocr_content(png_file):
@@ -202,9 +208,12 @@ def _get_request_zoom(request: request) -> float:
     :param request:
     :return:
     """
-    if 'zoom' not in request.form or not request.form['zoom']:
-        return 100.0
-    return float(request.form['zoom'])
+    zoom = 100.0
+    try:
+        zoom = float(request.form['zoom'])
+    except:
+        pass
+    return zoom
 
 
 # 矩形区域坐标合集数组
@@ -215,9 +224,10 @@ def _get_request_rects(request: request) -> list:
     :param request:
     :return:
     """
-    if 'rects' not in request.form or not request.form['rects']:
+    try:
+        rects = request.form['rects'].split(';')
+    except:
         return None
-    rects = request.form['rects'].split(';')
     rect_list = []
     for rect in rects:
         _rt = rect.split(',')
@@ -236,6 +246,7 @@ def _open_file(file):
         subprocess.call(["open", file])
     else:
         pass
+
 
 # Press the green button in the gutter to run the script.
 if __name__ == "__main__":
