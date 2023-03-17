@@ -165,12 +165,12 @@ def _cut_page_rect(tmpdir, page, p_index,mat, frect = None, r_index=0):
     # 不使用alpha通道
     pixmap = page.get_pixmap(matrix=mat, alpha=False, clip=frect, grayscale=True)
     rect_png = os.path.join(tmpdir, f'{p_index}_{r_index}.png')
-    # debug for
-    _open_file(rect_png)
     try:
         pixmap.save(rect_png)
     except Exception as e:
         raise RuntimeError('图片与对应的识别区域坐标不匹配')
+    # debug for
+    # _open_file(rect_png)
     return rect_png
 
 @log_time
