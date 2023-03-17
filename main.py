@@ -11,6 +11,7 @@ import time
 import cv2
 import fitz
 import paddle
+from fitz import Document
 from flask import Flask, render_template, request, Response
 from werkzeug.datastructures import FileStorage
 
@@ -57,11 +58,11 @@ def uploader():
             file.save(tmp_file)
             tmp_file_name, ext = os.path.splitext(os.path.basename(tmp_file))
             # 需要裁切的坐标合集数组
-            request_rects = get_request_rects(request)
-            result.zoom = get_request_zoom(request)
+            request_rects = _get_request_rects(request)
+            result.zoom = _get_request_zoom(request)
             # 如果是单页图片直接读取
             if imghdr.what(tmp_file) and ext != 'tiff':
-                page_result = cut_orc_image(1, tmpdir, tmp_file, request_rects)
+                page_result = _cut_orc_image(1, tmpdir, tmp_file, request_rects)
                 result.pages.append(page_result)
             # 多页pdf使用fitz进行按页读取
             else:
@@ -69,23 +70,7 @@ def uploader():
                     result.number = doc.page_count
                     for p_index in range(0, doc.page_count):
                         page = doc.load_page(p_index)
-                        p_width = page.rect.width
-                        p_height = page.rect.height
-                        print(f'第{p_index}页, 宽:{p_width} 高:{p_height}')
-                        # 每页按区域裁切后的图片列表， 如果没有裁切，则整页作为列表其中一项
-                        page_result = model.Page()
-                        if request_rects:
-                            for r_index, rect in enumerate(request_rects):
-                                # 指定的区域
-                                frect = fitz.Rect(rect[0], rect[1], rect[2], rect[3])
-                                rect_content = cut_ocr_page_rect(result.zoom, tmpdir, page, p_index, r_index, frect)
-                                page_result.contents.append(rect_content)
-                                page_result.rects.append([frect.y0, frect.y0, frect.x1, frect.y1])
-                                pass
-                        else:
-                            page_content = cut_ocr_page_rect(result.zoom, tmpdir, page, p_index)
-                            page_result.contents.append(page_content)
-                            page_result.rects.append([0, 0, p_width, p_height])
+                        page_result = _cut_ocr_page(result.zoom, tmpdir, doc, p_index, request_rects)
                         result.pages.append(page_result)
     except Exception as e:
         logging.exception(e)
@@ -93,7 +78,7 @@ def uploader():
     return Response(resp, mimetype='application/xml')
 
 
-def cut_orc_image(zoom: float, tmpdir: str, img_path, request_rects: list):
+def _cut_orc_image(zoom: float, tmpdir: str, img_path, request_rects: list):
     """
         所截区域图片保存
     :param path: 图片路径
@@ -118,19 +103,18 @@ def cut_orc_image(zoom: float, tmpdir: str, img_path, request_rects: list):
             cv2.imwrite(rect_img_file, cropped)
             # debug for
             # open_file(rect_img_file)
-            rect_content = ocr_content(rect_img_file)
+            rect_content = _ocr_content(rect_img_file)
             page_result.contents.append(rect_content)
             page_result.rects.append([rect[0], rect[1], rect[2], rect[3]])
     else:
-        img_content = ocr_content(img_path)
+        img_content = _ocr_content(img_path)
         page_result.contents.append(img_content)
         page_result.rects.append([0, 0, width, height])
     return page_result
 
 
 @log_time
-def cut_ocr_page_rect(zoom: float, tmpdir: str, page: Page, page_index: int, rect_index: int = 0,
-                      frect: fitz.Rect = None) -> list:
+def _cut_ocr_page(zoom: float, tmpdir: str, doc:Document, p_index: int, request_rects:list) -> model.Page:
     """
     开始ocr识别
     :param ocr: paddleocr对象
@@ -141,21 +125,56 @@ def cut_ocr_page_rect(zoom: float, tmpdir: str, page: Page, page_index: int, rec
     :param frect: fitz.Rect区域块
     :return:
     """
+    page = doc.load_page(p_index)
+    p_width = page.rect.width
+    p_height = page.rect.height
+    # 每页按区域裁切后的图片列表， 如果没有裁切，则整页作为列表其中一项
+    page_result = model.Page()
     # 设置缩放比例
     mat = fitz.Matrix(zoom / 100.0, zoom / 100.0)
+    if request_rects:
+        for r_index, rect in enumerate(request_rects):
+            # 指定的区域
+            frect = fitz.Rect(rect[0], rect[1], rect[2], rect[3])
+            rect_file = _cut_page_rect(tmpdir, page, p_index, mat, frect, r_index)
+            rect_content = _ocr_content(rect_file)
+            page_result.contents.append(rect_content)
+            page_result.rects.append([frect.y0, frect.y0, frect.x1, frect.y1])
+            pass
+    else:
+        page_file = _cut_page_rect(tmpdir, page, p_index, mat)
+        page_content = _ocr_content(page_file)
+        page_result.contents.append(page_content)
+        page_result.rects.append([0, 0, p_width, p_height])
+
+    return page_result
+
+
+@log_time
+def _cut_page_rect(tmpdir, page, p_index,mat, frect = None, r_index=0):
+    """
+    将pdf每页按当前frect区域进行裁切
+    :param tmpdir: 临时目录
+    :param page: 当前页
+    :param p_index: 当前页索引
+    :param mat: 缩放比例
+    :param frect: 要裁切的区域
+    :param r_index: 区域索引
+    :return: 返回裁切后的临时图片路径
+    """
     # 不使用alpha通道
     pixmap = page.get_pixmap(matrix=mat, alpha=False, clip=frect, grayscale=True)
-    rect_png = os.path.join(tmpdir, f'{page_index}_{rect_index}.png')
-    print(f'识别第{page_index}页: {rect_png}')
+    rect_png = os.path.join(tmpdir, f'{p_index}_{r_index}.png')
+    # debug for
+    _open_file(rect_png)
     try:
         pixmap.save(rect_png)
     except Exception as e:
         raise RuntimeError('图片与对应的识别区域坐标不匹配')
-    return ocr_content(rect_png)
-
+    return rect_png
 
 @log_time
-def ocr_content(png_file):
+def _ocr_content(png_file):
     """
     从文件识别内容
     :param png_file: 单页图片文件
@@ -177,7 +196,7 @@ def ocr_content(png_file):
 
 
 @log_time
-def get_request_zoom(request: request) -> float:
+def _get_request_zoom(request: request) -> float:
     """
     获取zoom请求参数 如果不包含该参数默认为100.0
     :param request:
@@ -190,7 +209,7 @@ def get_request_zoom(request: request) -> float:
 
 # 矩形区域坐标合集数组
 @log_time
-def get_request_rects(request: request) -> list:
+def _get_request_rects(request: request) -> list:
     """
     解析request请求中的区域块坐标列表
     :param request:
@@ -207,7 +226,7 @@ def get_request_rects(request: request) -> list:
     return rect_list
 
 
-def open_file(file):
+def _open_file(file):
     os_name = platform.system()
     if os_name == "Windows":
         os.startfile(file)
