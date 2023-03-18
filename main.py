@@ -198,8 +198,6 @@ def _cut_page_rect(tmpdir, page, p_index, mat, frect=None, r_index=0):
         pixmap.save(rect_png)
     except Exception as e:
         raise RuntimeError('图片与对应的识别区域坐标不匹配')
-    # debug for
-    # _open_file(rect_png)
     return rect_png
 
 
@@ -213,6 +211,8 @@ async def _ocr_content(task: model.RectTask):
     # 从ocr池中获取对象
     # myocr = pond.borrow(ocr_factory)
     # ocr = myocr.use()
+    # debug for
+    _open_file(task.rect_file)
     async with aiofiles.open(task.rect_file, 'rb') as f:
         img_bytes = await f.read()
     # 数组第一层: 每页
