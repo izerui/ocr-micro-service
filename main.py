@@ -75,7 +75,7 @@ def uploader():
             # 如果是单页图片直接读取
             if imghdr.what(tmp_file):
                 result.number = 1
-                ocr_tasks.extend(_gen_orc_image_task(1, tmpdir, tmp_file, request_rects))
+                ocr_tasks.extend(_gen_orc_image_task(result.zoom, tmpdir, tmp_file, request_rects))
             # 多页pdf使用fitz进行按页读取
             else:
                 with fitz.open(tmp_file) as doc:
@@ -125,6 +125,11 @@ def _gen_orc_image_task(zoom: float, tmpdir: str, img_path, request_rects: list)
     img = cv2.imread(img_path)  # 打开图像
     # 获取图片宽度和高度
     height, width = img.shape[:2]
+    if int(zoom) != 100:
+        ratio = zoom / 100.0
+        # 缩放后的长宽
+        resized_width, resized_height = int(width * ratio), int(height * ratio)
+        img = cv2.resize(img, (resized_width, resized_height))
     # 待识别任务
     tasks = []
     if request_rects:
