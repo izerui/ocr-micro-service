@@ -1,4 +1,5 @@
 # This is a sample Python script.
+import asyncio
 import imghdr
 import logging
 import os
@@ -8,6 +9,7 @@ import tempfile
 import threading
 import time
 
+import aiofiles
 import cv2
 import fitz
 import paddle
@@ -17,8 +19,6 @@ from werkzeug.datastructures import FileStorage
 
 import model
 from ocr import pond, ocr_factory
-
-import logging
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
@@ -56,6 +56,7 @@ def uploader():
     """
     result = model.Result()
     try:
+        s_time = time.time()
         print('req: ', threading.current_thread().name)
         with tempfile.TemporaryDirectory() as tmpdir:
             file: FileStorage = request.files['file']
@@ -66,7 +67,7 @@ def uploader():
             request_rects = _get_request_rects(request)
             result.zoom = _get_request_zoom(request)
             # 如果是单页图片直接读取
-            if imghdr.what(tmp_file) and ext != 'tiff':
+            if imghdr.what(tmp_file):
                 page_result = _cut_orc_image(1, tmpdir, tmp_file, request_rects)
                 result.pages.append(page_result)
             # 多页pdf使用fitz进行按页读取
@@ -74,11 +75,12 @@ def uploader():
                 with fitz.open(tmp_file) as doc:
                     result.number = doc.page_count
                     for p_index in range(0, doc.page_count):
-                        page = doc.load_page(p_index)
                         page_result = _cut_ocr_page(result.zoom, tmpdir, doc, p_index, request_rects)
                         result.pages.append(page_result)
     except Exception as e:
         logging.exception(e)
+    finally:
+        logger.info(f'本次识别耗时: {time.time() - s_time} 秒')
     resp = result.to_xml()
     return Response(resp, mimetype='application/xml')
 
@@ -134,23 +136,40 @@ def _cut_ocr_page(zoom: float, tmpdir: str, doc: Document, p_index: int, request
     p_width = page.rect.width
     p_height = page.rect.height
     # 每页按区域裁切后的图片列表， 如果没有裁切，则整页作为列表其中一项
-    page_result = model.Page()
+    page_result = model.Page(p_index)
     # 设置缩放比例
     mat = fitz.Matrix(zoom / 100.0, zoom / 100.0)
     if request_rects:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        tasks = []
         for r_index, rect in enumerate(request_rects):
             # 指定的区域
             frect = fitz.Rect(rect[0], rect[1], rect[2], rect[3])
             rect_file = _cut_page_rect(tmpdir, page, p_index, mat, frect, r_index)
-            rect_content = _ocr_content(rect_file)
-            page_result.contents.append(rect_content)
-            page_result.rects.append([frect.y0, frect.y0, frect.x1, frect.y1])
-            pass
+            task = asyncio.ensure_future(_ocr_content(model.RectTask(r_index, rect, rect_file)))
+            tasks.append(task)
+        loop.run_until_complete(asyncio.wait(tasks))
+        for task in tasks:
+            t: model.RectTask= task.result()
+            content = model.Content(t.index, t.result_text, t.rect)
+            page_result.contents.append(content)
+            print(task)
+        # future_task =
+        # future_tasks.append(future_task)
+
+        # results = await asyncio.gather(*future_tasks)
+
+        # for task in rect_tasks:
+        #     content = model.Content(r_index, rect_content, rect)
+        #     page_result.contents.append(content)
+        #     pass
+        # loop.run_until_complete()
     else:
         page_file = _cut_page_rect(tmpdir, page, p_index, mat)
         page_content = _ocr_content(page_file)
-        page_result.contents.append(page_content)
-        page_result.rects.append([0, 0, p_width, p_height])
+        content = model.Content(0, page_content, [0, 0, p_width, p_height])
+        page_result.contents.append(content)
 
     return page_result
 
@@ -180,7 +199,7 @@ def _cut_page_rect(tmpdir, page, p_index, mat, frect=None, r_index=0):
 
 
 @log_time
-def _ocr_content(png_file):
+async def _ocr_content(task: model.RectTask):
     """
     从文件识别内容
     :param png_file: 单页图片文件
@@ -189,16 +208,18 @@ def _ocr_content(png_file):
     # 从ocr池中获取对象
     myocr = pond.borrow(ocr_factory)
     ocr = myocr.use()
+    async with aiofiles.open(task.rect_file, 'rb') as f:
+        img_bytes = await f.read()
     # 数组第一层: 每页
     # 数组第二层: 每文字块
     #       文字块[0]: 文字块的最小矩形区域的坐标(左上、右上、左下、右下)
     #       文字块[1]: 文字块的内容及可信度(介于0 到 1之间)
-    rect_result = ocr.ocr(png_file, det=True, rec=True, cls=True)
+    rect_result = ocr.ocr(img_bytes, det=True, rec=True, cls=True)
     # 使用完毕归还ocr对象
     pond.recycle(myocr, ocr_factory)
     # 每个裁切块的识别结果
-    result = '\r\t'.join([line[1][0] for line in rect_result[0]])
-    return result
+    task.result_text = '\r\t'.join([line[1][0] for line in rect_result[0]])
+    return task
 
 
 @log_time
