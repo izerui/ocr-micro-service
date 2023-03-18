@@ -13,6 +13,7 @@ import aiofiles
 import cv2
 import fitz
 import paddle
+from aiohttp import web
 from fitz import Document
 from flask import Flask, render_template, request, Response
 from paddleocr import PaddleOCR
@@ -26,7 +27,7 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
 logger = logging.getLogger()
 
-myocr = PaddleOCR(use_angle_cls=True, use_gpu=False, lang="ch", use_mp=True, total_process_num=12)
+myocr = PaddleOCR(use_angle_cls=True, use_gpu=False, lang="ch", use_mp=True, total_process_num=24)
 
 
 def log_time(func):
@@ -66,41 +67,41 @@ def uploader():
             file: FileStorage = request.files['file']
             tmp_file = os.path.join(tmpdir, file.filename)
             file.save(tmp_file)
-            tmp_file_name, ext = os.path.splitext(os.path.basename(tmp_file))
+            # tmp_file_name, ext = os.path.splitext(os.path.basename(tmp_file))
             # 需要裁切的坐标合集数组
             request_rects = _get_request_rects(request)
             result.zoom = _get_request_zoom(request)
+            ocr_tasks = []
             # 如果是单页图片直接读取
             if imghdr.what(tmp_file):
-                page_result = _cut_orc_image(1, tmpdir, tmp_file, request_rects)
-                result.pages.append(page_result)
+                result.number = 1
+                ocr_tasks.extend(_gen_orc_image_task(1, tmpdir, tmp_file, request_rects))
             # 多页pdf使用fitz进行按页读取
             else:
                 with fitz.open(tmp_file) as doc:
                     # 设置缩放比例
                     mat = fitz.Matrix(result.zoom / 100.0, result.zoom / 100.0)
                     result.number = doc.page_count
-                    ocr_tasks = []
                     for p_index in range(0, doc.page_count):
-                        _ts = _gen_ocr_page_tasks(mat, tmpdir, doc, p_index, request_rects)
-                        ocr_tasks.extend(_ts)
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    # 开启协程处理多个待识别任务
-                    future_tasks = []
-                    for task in ocr_tasks:
-                        ft = asyncio.ensure_future(_ocr_content(task))
-                        future_tasks.append(ft)
-                    loop.run_until_complete(asyncio.wait(future_tasks))
+                        ocr_tasks.extend(_gen_ocr_page_tasks(mat, tmpdir, doc, p_index, request_rects))
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            # 开启协程处理多个待识别任务
+            future_tasks = []
+            for task in ocr_tasks:
+                ft = asyncio.ensure_future(_ocr_content(task))
+                future_tasks.append(ft)
+            loop.run_until_complete(asyncio.wait(future_tasks))
 
-                    page_results: list = []
-                    for p_index in range(0, doc.page_count):
-                        page_results.append(model.Page(p_index))
-                    for ft in future_tasks:
-                        r: model.RectTask = ft.result()
-                        content = model.Content(r.r_index, r.result_text, r.rect)
-                        page_results[r.p_index].contents.append(content)
-                    result.pages = page_results
+            page_results: list = []
+            for p_index in range(0, result.number):
+                page_results.append(model.Page(p_index))
+            for ft in future_tasks:
+                r: model.RectTask = ft.result()
+                content = model.Content(r.r_index, r.result_text, r.rect)
+                page_results[r.p_index].contents.append(content)
+            result.pages = page_results
+
     except Exception as e:
         logging.exception(e)
     finally:
@@ -109,7 +110,7 @@ def uploader():
     return Response(resp, mimetype='application/xml')
 
 
-def _cut_orc_image(zoom: float, tmpdir: str, img_path, request_rects: list):
+def _gen_orc_image_task(zoom: float, tmpdir: str, img_path, request_rects: list):
     """
         所截区域图片保存
     :param path: 图片路径
@@ -124,7 +125,8 @@ def _cut_orc_image(zoom: float, tmpdir: str, img_path, request_rects: list):
     img = cv2.imread(img_path)  # 打开图像
     # 获取图片宽度和高度
     height, width = img.shape[:2]
-    page_result = model.Page()
+    # 待识别任务
+    tasks = []
     if request_rects:
         for r_index, rect in enumerate(request_rects):
             # image[start_row:end_row, start_col:end_col]
@@ -132,16 +134,12 @@ def _cut_orc_image(zoom: float, tmpdir: str, img_path, request_rects: list):
             rect_img_file = os.path.join(tmpdir, f'{r_index}{ext}')
             # 保存截取的图片
             cv2.imwrite(rect_img_file, cropped)
-            # debug for
-            # open_file(rect_img_file)
-            rect_content = _ocr_content(rect_img_file)
-            page_result.contents.append(rect_content)
-            page_result.rects.append([rect[0], rect[1], rect[2], rect[3]])
+            # 加入识别任务
+            tasks.append(model.RectTask(True, False, 0, r_index, rect, rect_img_file))
     else:
-        img_content = _ocr_content(img_path)
-        page_result.contents.append(img_content)
-        page_result.rects.append([0, 0, width, height])
-    return page_result
+        # 加入识别任务
+        tasks.append(model.RectTask(True, False, 0, 0, [0, 0, width, height], img_path))
+    return tasks
 
 
 @log_time
@@ -168,7 +166,7 @@ def _gen_ocr_page_tasks(mat, tmpdir: str, doc: Document, p_index: int, request_r
             # 裁切区域成图
             rect_file = _cut_page_rect(tmpdir, page, p_index, mat, frect, r_index)
             # 加入识别任务
-            tasks.append(model.RectTask(False, False, p_index, r_index, rect, rect_file))
+            tasks.append(model.RectTask(True, False, p_index, r_index, rect, rect_file))
     else:
         page_file = _cut_page_rect(tmpdir, page, p_index, mat)
         # 加入识别任务
@@ -252,14 +250,14 @@ def _get_request_rects(request: request) -> list:
     """
     try:
         rects = request.form['rects'].split(';')
+        rect_list = []
+        for rect in rects:
+            _rt = rect.split(',')
+            # 矩形区域左上及右下坐标
+            rect_list.append([int(_rt[0]), int(_rt[1]), int(_rt[2]), int(_rt[3])])
+        return rect_list
     except:
         return None
-    rect_list = []
-    for rect in rects:
-        _rt = rect.split(',')
-        # 矩形区域左上及右下坐标
-        rect_list.append([int(_rt[0]), int(_rt[1]), int(_rt[2]), int(_rt[3])])
-    return rect_list
 
 
 def _open_file(file):
@@ -280,5 +278,6 @@ if __name__ == "__main__":
     fitz.restore_aliases()
     paddle.utils.run_check()
     app.run(debug=True)
+    web.Application
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
