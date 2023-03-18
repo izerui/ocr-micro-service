@@ -26,7 +26,7 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
 logger = logging.getLogger()
 
-myocr = PaddleOCR(use_angle_cls=True, use_gpu=True, lang="ch", use_mp=True, total_process_num=12)
+myocr = PaddleOCR(use_angle_cls=True, use_gpu=False, lang="ch", use_mp=True, total_process_num=12)
 
 
 def log_time(func):
