@@ -76,7 +76,7 @@
                         pdfjsLib.getDocument(uint8Array).promise.then(function (pdf) {
                             // 获得该PDF的第一页
                             pdf.getPage(1).then(function (page) {
-                                var scale = 1;
+                                var scale = (parseInt($('#zoom').val()) / 100.0);
                                 var viewport = page.getViewport({scale: scale,});
                                 // Support HiDPI-screens.
                                 var outputScale = 1;

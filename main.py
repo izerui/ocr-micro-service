@@ -79,11 +79,9 @@ def uploader():
             # 多页pdf使用fitz进行按页读取
             else:
                 with fitz.open(tmp_file) as doc:
-                    # 设置缩放比例
-                    mat = fitz.Matrix(result.zoom / 100.0, result.zoom / 100.0)
                     result.number = doc.page_count
                     for p_index in range(0, doc.page_count):
-                        ocr_tasks.extend(_gen_ocr_page_tasks(mat, tmpdir, doc, p_index, request_rects))
+                        ocr_tasks.extend(_gen_ocr_page_tasks(result.zoom, tmpdir, doc, p_index, request_rects))
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             # 开启协程处理多个待识别任务
@@ -148,9 +146,10 @@ def _gen_orc_image_task(zoom: float, tmpdir: str, img_path, request_rects: list)
 
 
 @log_time
-def _gen_ocr_page_tasks(mat, tmpdir: str, doc: Document, p_index: int, request_rects: list) -> model.Page:
+def _gen_ocr_page_tasks(zoom, tmpdir: str, doc: Document, p_index: int, request_rects: list) -> model.Page:
     """
     开始ocr识别
+    :param zoom: 缩放比例 100  换算成比例则为 100 / 100.0 = 1 即为原图
     :param ocr: paddleocr对象
     :param tmpdir: 临时目录
     :param page: fitz页面对象
@@ -164,10 +163,15 @@ def _gen_ocr_page_tasks(mat, tmpdir: str, doc: Document, p_index: int, request_r
     p_height = page.rect.height
     # 待识别任务
     tasks = []
+    # 不再进行缩放，因为 page.get_pixmap(clip=区域) 这里的坐标是针对原图的，并不是针对缩放后的图的坐标。所以只需要改变下面的实际坐标即可，按比例除则是原图坐标
+    # mat = fitz.Matrix(zoom / 100.0, zoom / 100.0)
+    mat = fitz.Matrix(1, 1)
+    # 缩放比例
+    zoom_ratio = zoom / 100.0
     if request_rects:
         for r_index, rect in enumerate(request_rects):
-            # 区域
-            frect = fitz.Rect(rect[0], rect[1], rect[2], rect[3])
+            # 按比例换算成原图的坐标区域
+            frect = fitz.Rect(rect[0] / zoom_ratio, rect[1] / zoom_ratio, rect[2] / zoom_ratio, rect[3] / zoom_ratio)
             # 裁切区域成图
             rect_file = _cut_page_rect(tmpdir, page, p_index, mat, frect, r_index)
             # 加入识别任务
@@ -186,7 +190,7 @@ def _cut_page_rect(tmpdir, page, p_index, mat, frect=None, r_index=0):
     :param tmpdir: 临时目录
     :param page: 当前页
     :param p_index: 当前页索引
-    :param mat: 缩放比例
+    :param mat: 缩放比例(该缩放比例跟裁切坐标并不一致，裁切坐标永远针对原图的原始坐标算，故该参数有点鸡肋)
     :param frect: 要裁切的区域
     :param r_index: 区域索引
     :return: 返回裁切后的临时图片路径
@@ -212,7 +216,7 @@ async def _ocr_content(task: model.RectTask):
     # myocr = pond.borrow(ocr_factory)
     # ocr = myocr.use()
     # debug for
-    _open_file(task.rect_file)
+    # _open_file(rect_png)
     async with aiofiles.open(task.rect_file, 'rb') as f:
         img_bytes = await f.read()
     # 数组第一层: 每页
