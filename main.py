@@ -15,14 +15,18 @@ import fitz
 import paddle
 from fitz import Document
 from flask import Flask, render_template, request, Response
+from paddleocr import PaddleOCR
 from werkzeug.datastructures import FileStorage
 
 import model
-from ocr import pond, ocr_factory
+
+# from ocr import pond, ocr_factory
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
 logger = logging.getLogger()
+
+myocr = PaddleOCR(use_angle_cls=True, use_gpu=True, lang="ch", use_mp=True, total_process_num=12)
 
 
 def log_time(func):
@@ -73,10 +77,30 @@ def uploader():
             # 多页pdf使用fitz进行按页读取
             else:
                 with fitz.open(tmp_file) as doc:
+                    # 设置缩放比例
+                    mat = fitz.Matrix(result.zoom / 100.0, result.zoom / 100.0)
                     result.number = doc.page_count
+                    ocr_tasks = []
                     for p_index in range(0, doc.page_count):
-                        page_result = _cut_ocr_page(result.zoom, tmpdir, doc, p_index, request_rects)
-                        result.pages.append(page_result)
+                        _ts = _gen_ocr_page_tasks(mat, tmpdir, doc, p_index, request_rects)
+                        ocr_tasks.extend(_ts)
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    # 开启协程处理多个待识别任务
+                    future_tasks = []
+                    for task in ocr_tasks:
+                        ft = asyncio.ensure_future(_ocr_content(task))
+                        future_tasks.append(ft)
+                    loop.run_until_complete(asyncio.wait(future_tasks))
+
+                    page_results: list = []
+                    for p_index in range(0, doc.page_count):
+                        page_results.append(model.Page(p_index))
+                    for ft in future_tasks:
+                        r: model.RectTask = ft.result()
+                        content = model.Content(r.r_index, r.result_text, r.rect)
+                        page_results[r.p_index].contents.append(content)
+                    result.pages = page_results
     except Exception as e:
         logging.exception(e)
     finally:
@@ -121,7 +145,7 @@ def _cut_orc_image(zoom: float, tmpdir: str, img_path, request_rects: list):
 
 
 @log_time
-def _cut_ocr_page(zoom: float, tmpdir: str, doc: Document, p_index: int, request_rects: list) -> model.Page:
+def _gen_ocr_page_tasks(mat, tmpdir: str, doc: Document, p_index: int, request_rects: list) -> model.Page:
     """
     开始ocr识别
     :param ocr: paddleocr对象
@@ -135,43 +159,21 @@ def _cut_ocr_page(zoom: float, tmpdir: str, doc: Document, p_index: int, request
     page = doc.load_page(p_index)
     p_width = page.rect.width
     p_height = page.rect.height
-    # 每页按区域裁切后的图片列表， 如果没有裁切，则整页作为列表其中一项
-    page_result = model.Page(p_index)
-    # 设置缩放比例
-    mat = fitz.Matrix(zoom / 100.0, zoom / 100.0)
+    # 待识别任务
+    tasks = []
     if request_rects:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        tasks = []
         for r_index, rect in enumerate(request_rects):
-            # 指定的区域
+            # 区域
             frect = fitz.Rect(rect[0], rect[1], rect[2], rect[3])
+            # 裁切区域成图
             rect_file = _cut_page_rect(tmpdir, page, p_index, mat, frect, r_index)
-            task = asyncio.ensure_future(_ocr_content(model.RectTask(r_index, rect, rect_file)))
-            tasks.append(task)
-        loop.run_until_complete(asyncio.wait(tasks))
-        for task in tasks:
-            t: model.RectTask= task.result()
-            content = model.Content(t.index, t.result_text, t.rect)
-            page_result.contents.append(content)
-            print(task)
-        # future_task =
-        # future_tasks.append(future_task)
-
-        # results = await asyncio.gather(*future_tasks)
-
-        # for task in rect_tasks:
-        #     content = model.Content(r_index, rect_content, rect)
-        #     page_result.contents.append(content)
-        #     pass
-        # loop.run_until_complete()
+            # 加入识别任务
+            tasks.append(model.RectTask(False, False, p_index, r_index, rect, rect_file))
     else:
         page_file = _cut_page_rect(tmpdir, page, p_index, mat)
-        page_content = _ocr_content(page_file)
-        content = model.Content(0, page_content, [0, 0, p_width, p_height])
-        page_result.contents.append(content)
-
-    return page_result
+        # 加入识别任务
+        tasks.append(model.RectTask(True, False, p_index, 0, [0, 0, p_width, p_height], page_file))
+    return tasks
 
 
 @log_time
@@ -206,19 +208,22 @@ async def _ocr_content(task: model.RectTask):
     :return:
     """
     # 从ocr池中获取对象
-    myocr = pond.borrow(ocr_factory)
-    ocr = myocr.use()
+    # myocr = pond.borrow(ocr_factory)
+    # ocr = myocr.use()
     async with aiofiles.open(task.rect_file, 'rb') as f:
         img_bytes = await f.read()
     # 数组第一层: 每页
     # 数组第二层: 每文字块
     #       文字块[0]: 文字块的最小矩形区域的坐标(左上、右上、左下、右下)
     #       文字块[1]: 文字块的内容及可信度(介于0 到 1之间)
-    rect_result = ocr.ocr(img_bytes, det=True, rec=True, cls=True)
+    rect_result = myocr.ocr(img_bytes, det=task.det, rec=True, cls=task.cls)
     # 使用完毕归还ocr对象
-    pond.recycle(myocr, ocr_factory)
+    # pond.recycle(myocr, ocr_factory)
     # 每个裁切块的识别结果
-    task.result_text = '\r\t'.join([line[1][0] for line in rect_result[0]])
+    if task.det:
+        task.result_text = '\r\t'.join([line[1][0] for line in rect_result[0]])  # det=True
+    else:
+        task.result_text = '\r\t'.join([line[0] for line in rect_result[0]])  # det=False
     return task
 
 

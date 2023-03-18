@@ -1,24 +1,72 @@
 import xml.etree.ElementTree as ET
 
+
 class RectTask(object):
 
-    def __init__(self, index:int, rect: list, rect_file:str):
-        self._index = index
+    def __init__(self, det: bool, cls: bool, p_index: int, r_index: int, rect: list, rect_file: str):
+        """
+        :param det: 是否进行文字检测，当为裁切区域识别的时候，就没必要进行文字区域检测了，加快识别速度
+        :param cls: 是否使用角度分类器。如果为真，则可以识别旋转180度的文本。如果没有文本旋转180度，使用cls=False来获得更好的性能。即使cls=False，旋转90度或270度的文本也可以被识别
+        :param p_index: 页码索引
+        :param r_index: 裁切块在页中的索引
+        :param rect: 裁切的区域 [x0, y0, x1, y1]
+        :param rect_file: 裁切后的文件路径
+        """
+        self._cls = cls
+        self._det = det
+        self._p_index = p_index
+        self._r_index = r_index
         self._rect = rect
         self._rect_file = rect_file
         self._result_text = None
 
     @property
-    def index(self) -> int:
+    def cls(self) -> bool:
         """
-        索引
+        是否使用角度分类器
         :return:
         """
-        return self._index
+        return self._cls
 
-    @index.setter
-    def index(self, value: list):
-        self._index = value
+    @cls.setter
+    def cls(self, value: bool):
+        self._cls = value
+
+    @property
+    def det(self) -> bool:
+        """
+        是否进行文字区域检测
+        :return:
+        """
+        return self._det
+
+    @det.setter
+    def det(self, value: bool):
+        self._det = value
+
+    @property
+    def p_index(self) -> int:
+        """
+        页码索引
+        :return:
+        """
+        return self._p_index
+
+    @p_index.setter
+    def p_index(self, value: int):
+        self._p_index = value
+
+    @property
+    def r_index(self) -> int:
+        """
+        rect在本页中的索引
+        :return:
+        """
+        return self._r_index
+
+    @r_index.setter
+    def r_index(self, value: int):
+        self._r_index = value
 
     @property
     def rect(self) -> list:
@@ -98,7 +146,6 @@ class Content(object):
     @rect.setter
     def rect(self, value: list):
         self._rect = value
-
 
     def to_xml(self):
         contentEL = ET.Element("content",
