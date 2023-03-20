@@ -104,7 +104,7 @@ class MyOcr(object):
                     page_results.append(model.Page(p_index))
                 for ft in future_tasks:
                     r: model.RectTask = ft.result()
-                    content = model.Content(r.r_index, r.result_text, r.rect)
+                    content = model.Content(r.r_index, r.result_text, r.credibility, r.rect)
                     page_results[r.p_index].contents.append(content)
                 result.pages = page_results
 
@@ -234,8 +234,10 @@ class MyOcr(object):
         # 每个裁切块的识别结果
         if task.det:
             task.result_text = '\r\t'.join([line[1][0] for line in rect_result[0]])  # det=True
+            task.credibility = ','.join([str(line[1][1]) for line in rect_result[0]])  # det=True
         else:
             task.result_text = '\r\t'.join([line[0] for line in rect_result[0]])  # det=False
+            task.credibility = ','.join([str(line[1]) for line in rect_result[0]])  # det=False
         return task
 
     @log_time

@@ -19,6 +19,7 @@ class RectTask(object):
         self._rect = rect
         self._rect_file = rect_file
         self._result_text = None
+        self._credibility = None
 
     @property
     def cls(self) -> bool:
@@ -104,11 +105,24 @@ class RectTask(object):
     def result_text(self, value: str):
         self._result_text = value
 
+    @property
+    def credibility(self) -> float:
+        """
+        可信度
+        :return:
+        """
+        return self._credibility
+
+    @credibility.setter
+    def credibility(self, value: float):
+        self._credibility = value
+
 
 class Content(object):
-    def __init__(self, index: int, text: str, rect: list):
+    def __init__(self, index: int, text: str, credibility: float, rect: list):
         self._index = index
         self._text = text
+        self._credibility = credibility
         self._rect = rect
 
     @property
@@ -136,6 +150,18 @@ class Content(object):
         self._text = value
 
     @property
+    def credibility(self) -> float:
+        """
+        可信度
+        :return:
+        """
+        return self._credibility
+
+    @credibility.setter
+    def credibility(self, value: float):
+        self._credibility = value
+
+    @property
     def rect(self) -> int:
         """
         坐标数组 [左上x, 左上y, 右下x, 右下y]
@@ -150,7 +176,8 @@ class Content(object):
     def to_xml(self):
         contentEL = ET.Element("content",
                                attrib={'index': str(self.index), 'x0': str(self.rect[0]), 'y0': str(self.rect[1]),
-                                       'x1': str(self.rect[2]), 'y1': str(self.rect[3])})
+                                       'x1': str(self.rect[2]), 'y1': str(self.rect[3]),
+                                       'credibility': str(self.credibility)})
         # contentEL.attrib['type'] = 'str'
         contentEL.text = self.text  # '<![CDATA[{}]]>'.format(txt)
         return contentEL
