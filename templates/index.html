@@ -34,7 +34,7 @@
                 ctx.stroke();
                 rects = $("#rects").val()
                 if (rects) {
-                    rects += ';' + `${x0},${y0},${x1},${y1}`
+                    rects += '; ' + `${x0},${y0},${x1},${y1}`
                 } else {
                     rects = `${x0},${y0}, ${x1}, ${y1}`
                 }
@@ -43,85 +43,115 @@
             })
             // ===============
 
+            let step = 10
+
             $('#small').click(function (event) {
                 value = $('#zoom').val()
-                value = parseInt(value) - 20
+                value = parseInt(value) - step
                 if (value < 10) {
                     value = 10
                 }
                 $('#zoom').val(value)
-                $('#file').trigger('change');
+                renderPage()
             })
 
             $('#large').click(function (event) {
                 value = $('#zoom').val()
-                value = parseInt(value) + 20
+                value = parseInt(value) + step
                 if (value > 300) {
                     value = 300
                 }
                 $('#zoom').val(value)
-                $('#file').trigger('change');
+                renderPage()
             })
 
+            var pdf = undefined
+            var image = undefined
+
             $("#file").change(function (event) {
+                pdf = undefined
+                image = undefined
+                $('#zoom').val(100)
+                $("#pages option").remove();
                 $("#rects").val('')
                 f = event.target.files[0]
-                var canvas = document.getElementById('myCanvas');
                 if (f.type.match('pdf.*')) {
                     var reader = new FileReader();
                     reader.onload = function (ev) {
                         var uint8Array = new Uint8Array(ev.target.result)
                         console.log(uint8Array)
                         // 使用pdf.js加载PDF文件
-                        pdfjsLib.getDocument(uint8Array).promise.then(function (pdf) {
-                            // 获得该PDF的第一页
-                            pdf.getPage(1).then(function (page) {
-                                var scale = (parseInt($('#zoom').val()) / 100.0);
-                                var viewport = page.getViewport({scale: scale,});
-                                // Support HiDPI-screens.
-                                var outputScale = 1;
-
-                                var context = canvas.getContext('2d');
-
-                                canvas.width = Math.floor(viewport.width * outputScale);
-                                canvas.height = Math.floor(viewport.height * outputScale);
-                                canvas.style.width = Math.floor(viewport.width) + "px";
-                                canvas.style.height = Math.floor(viewport.height) + "px";
-
-                                var transform = outputScale !== 1
-                                    ? [outputScale, 0, 0, outputScale, 0, 0]
-                                    : null;
-
-                                var renderContext = {
-                                    canvasContext: context,
-                                    transform: transform,
-                                    viewport: viewport
-                                };
-                                page.render(renderContext);
-                            });
+                        pdfjsLib.getDocument(uint8Array).promise.then(function (p) {
+                            pdf = p
+                            for (i = 1; i <= pdf.numPages; i++) {
+                                $("#pages").append("<option value='" + i + "'>" + i + "</option>");
+                            }
+                            renderPage()
                         });
                     };
                     reader.readAsArrayBuffer(f);
                 } else {
                     var reader = new FileReader();
                     reader.onload = function (ev) {
-                        var image = new Image();
+                        $("#pages option").remove();
+
+                        image = new Image();
                         image.src = ev.target.result;
 
                         image.onload = function () {
-                            let zoomRatio = (parseInt($('#zoom').val()) / 100.0)
-                            let imgWidth = image.width * zoomRatio;
-                            let imgHeight = image.height * zoomRatio;
-                            canvas.width = imgWidth;
-                            canvas.height = imgHeight;
-                            var ctx = canvas.getContext("2d");
-                            ctx.drawImage(image, 0, 0, imgWidth, imgHeight);
+                            $("#pages").append("<option value='" + 1 + "'>" + 1 + "</option>");
+                            renderPage()
                         };
                     };
                     reader.readAsDataURL(f);
                 }
 
             });
+
+            $('#pages').change(function () {
+                renderPage()
+            })
+
+            function renderPage() {
+                var canvas = document.getElementById('myCanvas');
+                if (pdf) {
+                    // 获得该PDF的第一页
+                    let currentPage = parseInt($("#pages").val())
+                    pdf.getPage(currentPage).then(function (page) {
+                        var scale = (parseInt($('#zoom').val()) / 100.0);
+                        var viewport = page.getViewport({scale: scale,});
+                        // Support HiDPI-screens.
+                        var outputScale = 1;
+
+                        var context = canvas.getContext('2d');
+
+                        canvas.width = Math.floor(viewport.width * outputScale);
+                        canvas.height = Math.floor(viewport.height * outputScale);
+                        canvas.style.width = Math.floor(viewport.width) + "px";
+                        canvas.style.height = Math.floor(viewport.height) + "px";
+
+                        var transform = outputScale !== 1
+                            ? [outputScale, 0, 0, outputScale, 0, 0]
+                            : null;
+
+                        var renderContext = {
+                            canvasContext: context,
+                            transform: transform,
+                            viewport: viewport
+                        };
+                        page.render(renderContext);
+                    });
+                }
+                if (image) {
+                    let zoomRatio = (parseInt($('#zoom').val()) / 100.0)
+                    let imgWidth = image.width * zoomRatio;
+                    let imgHeight = image.height * zoomRatio;
+                    canvas.width = imgWidth;
+                    canvas.height = imgHeight;
+                    var ctx = canvas.getContext("2d");
+                    ctx.drawImage(image, 0, 0, imgWidth, imgHeight);
+                }
+            }
 
         })
     </script>
@@ -130,8 +160,8 @@
 <form role="form" action="ocr" method="POST" enctype="multipart/form-data">
     <div class="form-group">
         <label for="rects">(可选)区域坐标合集</label>
-        <input type="text" class="form-control" id="rects" name="rects"
-               placeholder="请输入要按页读取的多个块区域坐标(x0,y0,x1,y1)">
+        <input type="text" class="form-control" id="rects" name="rects" readonly="readonly"
+               placeholder="批量读取每页的坐标块，加载图像后,通过鼠标框选自动加入">
         <p class="help-block">示例(多个块坐标使用;分隔):
             4796,3801,5617,3978;5728,4142,6408,4243。如果不填默认识别整页内容</p>
     </div>
@@ -154,7 +184,8 @@
     <button id="sub" type="submit" class="btn btn-default">提交</button>
     <button id="small" type="button" class="btn btn-default">缩小</button>
     <button id="large" type="button" class="btn btn-default">放大</button>
-    <a href="https://file.yj2025.com/files.zip" target="_blank">下载示例文件</a>
+    页码: <select id="pages" name="page"></select>
+    &nbsp;&nbsp;<a href="https://file.yj2025.com/files.zip" target="_blank">下载示例文件</a>
 </form>
 <div class="form-group">
     <p class="help-block">可以通过在下面的图像上面用鼠标画定指定的矩形区域来识别，支持多个区域的识别。</p>
