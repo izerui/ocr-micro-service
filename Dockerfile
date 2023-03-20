@@ -12,6 +12,9 @@ RUN pip config set global.index-url https://mirror.baidu.com/pypi/simple/
 RUN pip install protobuf==3.20.0 paddlepaddle paddleocr flask
 RUN pip install gunicorn gevent
 
-COPY . .
+COPY *.py .
+COPY ./whl ./whl
+COPY ./templates ./templates
+COPY ./static ./static
 
 CMD ["gunicorn", "main:app", "-c", "./gunicorn.conf.py"]

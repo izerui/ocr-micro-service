@@ -25,7 +25,22 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
 logger = logging.getLogger()
 
-pp_ocr = PaddleOCR(use_angle_cls=True, use_gpu=False, lang="ch", use_mp=True, total_process_num=8, show_log=False)
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+WHL_DIR = os.path.join(BASE_DIR, 'whl')
+
+custom_det_model_dir = os.path.join(WHL_DIR, 'det', 'ch', 'ch_PP-OCRv3_det_infer')
+custom_rec_model_dir = os.path.join(WHL_DIR, 'rec', 'ch', 'ch_PP-OCRv3_rec_infer')
+custom_cls_model_dir = os.path.join(WHL_DIR, 'cls', 'ch_ppocr_mobile_v2.0_cls_infer')
+pp_ocr = PaddleOCR(use_angle_cls=True,
+                   use_gpu=False,
+                   lang="ch",
+                   use_mp=True,
+                   total_process_num=8,
+                   det_model_dir=custom_det_model_dir,
+                   rec_model_dir=custom_rec_model_dir,
+                   cls_model_dir=custom_cls_model_dir,
+                   show_log=False)
+
 
 def log_time(func):
     def wrapper(*args, **kwargs):
@@ -63,7 +78,7 @@ class MyOcr(object):
                 # tmp_file_name, ext = os.path.splitext(os.path.basename(tmp_file))
                 # 需要裁切的坐标合集数组
                 request_rects = self._get_request_rects()
-                result.zoom = self._get_request_zoom(request)
+                result.zoom = self._get_request_zoom()
                 ocr_tasks = []
                 # 如果是单页图片直接读取
                 if imghdr.what(tmp_file):

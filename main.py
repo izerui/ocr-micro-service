@@ -3,7 +3,6 @@ import logging
 
 import fitz
 import paddle
-from aiohttp import web
 from flask import Flask, render_template, request, Response
 
 import ocr
@@ -38,6 +37,5 @@ if __name__ == "__main__":
     fitz.restore_aliases()
     paddle.utils.run_check()
     app.run(debug=True)
-    web.Application
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
