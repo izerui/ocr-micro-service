@@ -7,3 +7,7 @@ Autosave/
 *.log
 files/
 .idea/
+wheel/build/
+wheel/dist/
+wheel/ocr/
+wheel/ocr.egg-info/
