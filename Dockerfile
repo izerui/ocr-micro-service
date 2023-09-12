@@ -1,4 +1,4 @@
-FROM python:3.10.13-slim
+FROM python:3.8-slim
 
 RUN cp -pv /etc/apt/sources.list /etc/apt/sources.list.bak
 RUN sed -i -e 's/deb.debian.org/mirrors.ustc.edu.cn/g' -e 's/security.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list
