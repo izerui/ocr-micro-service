@@ -15,3 +15,6 @@
 
 # 部署
 > https://zhuanlan.zhihu.com/p/78432719
+
+# Docker
+https://hub.docker.com/r/izerui/ocr
